@@ -249,4 +249,39 @@ class TaskManager(object):
     def submit(self, func, args=(), kwargs={}, priority=0, title="anon"):
         self.__q.put(_Task(target=func, args=args, kwargs=kwargs, priority=priority, title=title))
         
+       
+       
+
+
+
+class Button(object):
+
+    def __init__(self, gpio_number, delay=3000, long_press_callback=lambda: None, short_press_callback=lambda: None):
+        self.key = ExtInt(getattr(ExtInt, "GPIO{}".format(gpio_number)), ExtInt.IRQ_RISING_FALLING, ExtInt.PULL_PU, self.__callback, 150)
+        self.key.enable()
+        self.delay = delay
+        self.timer = osTimer()
+        self.start_time = None
+        self.end_time = None
+        self.long_press_callback = long_press_callback
+        self.short_press_callback = short_press_callback
+        self.is_pressed = False  # 状态变量：按键是否被按下
         
+        
+    def __callback(self, args):
+        gpio_number, mode = args
+        if not self.is_pressed:
+            # 下降沿，按下
+            print("按键按下")
+            self.is_pressed = True
+            self.start_time = utime.ticks_ms()
+            self.timer.start(self.delay, 0, lambda args: self.long_press_callback(args))
+        elif self.is_pressed:
+            # 上升沿，释放
+            print("按键释放")
+            self.is_pressed = False
+            self.timer.stop()
+            self.end_time = utime.ticks_ms()
+            duration = utime.ticks_diff(self.end_time, self.start_time)
+            if duration < self.delay:
+                self.short_press_callback()

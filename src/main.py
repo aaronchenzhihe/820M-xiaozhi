@@ -6,7 +6,7 @@ import gc
 from machine import ExtInt,Pin
 from misc import PowerKey, Power
 from usr.protocol import WebSocketClient
-from usr.utils import ChargeManager, AudioManager, NetManager, TaskManager, name
+from usr.utils import ChargeManager, AudioManager, NetManager, TaskManager, name, Button
 from usr.threading import Thread, Event, Condition
 from usr.logging import getLogger
 import sys_bus
@@ -81,11 +81,11 @@ class Application(object):
         
         # 初始化 led; write(1) 灭； write(0) 亮
         self.wifi_red_led = Led(33)
-        self.wifi_green_led = Led(32)
-        self.power_red_led = Led(39)
-        self.power_green_led = Led(38)
+        self.wifi_green_led = Led(32) #ai
+        self.power_red_led = Led(39) 
+        self.power_green_led = Led(38) #power
         self.lte_red_led = Led(23)
-        self.lte_green_led = Led(24)
+        self.lte_green_led = Led(24)#chat
         self.led_power_pin = Pin(Pin.GPIO27, Pin.OUT, Pin.PULL_DISABLE, 0)
         self.prev_emoj = None
         self.power_green_led.blink(500, 500)
@@ -123,9 +123,10 @@ class Application(object):
         # self.gpio_pin = Pin(Pin.GPIO41, Pin.OUT, Pin.PULL_PD,0)
         
         # 初始化唤醒按键
-        self.volumedown = ExtInt(ExtInt.GPIO20, ExtInt.IRQ_RISING, ExtInt.PULL_PU, self.setvolumedown, 100)
-        self.power_down = ExtInt(ExtInt.GPIO41, ExtInt.IRQ_RISING, ExtInt.PULL_PU, self.power_down_handle, 100)
-        self.volumeup = ExtInt(ExtInt.GPIO47, ExtInt.IRQ_RISING, ExtInt.PULL_PU, self.setvolumeup, 100)
+        self.volumedown = ExtInt(ExtInt.GPIO20, ExtInt.IRQ_RISING, ExtInt.PULL_PU, self.setvolumedown, 200)
+        # self.power_down = ExtInt(ExtInt.GPIO41, ExtInt.IRQ_RISING, ExtInt.PULL_PU, self.power_down_handle, 200)
+        self.volumeup = ExtInt(ExtInt.GPIO47, ExtInt.IRQ_RISING, ExtInt.PULL_PU, self.setvolumeup, 200)
+        self.wakeup_key = Button(41, delay=3000, long_press_callback=self.power_down_handle, short_press_callback= self.on_talk_key_click)
 
 
     def __record_thread_handler(self):
@@ -158,8 +159,6 @@ class Application(object):
     def stop_kws(self):
         self.__record_thread_stop_event.set()
         self.__record_thread.join()
-        self.power_green_led.off()
-        self.power_green_led.on()
         # self.audio_manager.stop_kws()
         
     def start_vad(self):
@@ -174,14 +173,14 @@ class Application(object):
         self.__keyword_spotting_event.wait()
         self.stop_kws()
         t.join()
-        self.start_kws()
+        # self.start_kws()
 
     def __chat_process(self):
         global name
+        self.power_green_led.on()
         self.start_vad()
         try:
             with self.__protocol:
-                self.power_red_led.on()
                 self.__protocol.hello()
                 self.__protocol.wakeword_detected(name)
                 is_listen_flag = False
@@ -207,21 +206,26 @@ class Application(object):
                             is_listen_flag = False
                     if not self.__protocol.is_state_ok():
                         break
-                    # utime.sleep_ms(1)
+                    utime.sleep_ms(5)
                     # logger.debug("read opus data length: {}".format(len(data)))
         except Exception as e:
             logger.debug("working thread handler got Exception: {}".format(repr(e)))
         finally:
+            print("__chat_process exit")
+            self.lte_green_led.off()
+            self.wifi_green_led.off()
             self.power_green_led.blink(500, 500)
+            self.__working_thread = None
             self.stop_vad()
+            self.start_kws()
 
-    def on_talk_key_click(self, args):
-        logger.info("on_talk_key_click: ", args)
+    def on_talk_key_click(self):
+        # logger.info("on_talk_key_click: ", args)
         if self.__working_thread is not None and self.__working_thread.is_running():
             return
         self.__working_thread = Thread(target=self.__working_thread_handler)
         self.__working_thread.start()
-        self.__keyword_spotting_event.clear()
+        self.__keyword_spotting_event.set()
         
     def on_keyword_spotting(self, state):
         logger.info("on_keyword_spotting: {}".format(state))
@@ -319,10 +323,9 @@ class Application(object):
         self.audio_manager.open_opus()
         self.volumedown.enable()
         self.volumeup.enable()
-        self.power_down.enable()
+        # self.power_down.enable()
         self.start_kws()
         self.led_power_pin.write(1)
-        self.power_red_led.blink(250, 250)
         
         
 
